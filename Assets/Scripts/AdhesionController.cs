@@ -1,5 +1,6 @@
 using UnityEngine;
 
+[DefaultExecutionOrder(100)]
 public class AdhesionController : MonoBehaviour
 {
 
@@ -7,9 +8,14 @@ public class AdhesionController : MonoBehaviour
     public Transform pointB;
 
     [Header("Tension Settings")]
-    public float maxDistance = 2.0f;
-    public float normalDistance = 1.52f;
-    public float goodTraction = 1.8f;
+    public float goodTractionMultiplier = 1.25f;
+    public float maxDistanceMultiplier = 1.5f;
+
+
+
+    public float maxDistance { get; private set; }
+    public float normalDistance  { get; private set; }
+public float goodTraction { get; private set; }
 
     public float CurrentDistance { get; private set; }
     public bool HasGoodTraction { get; private set; }
@@ -21,10 +27,20 @@ public class AdhesionController : MonoBehaviour
     public Color overstretchedColor = Color.red;
     public Color normalColor = Color.yellow;
 
+    private void Start()
+    {
+        if (pointA != null && pointB != null)
+        {
+            normalDistance = Vector3.Distance(pointA.position, pointB.position);
+            goodTraction = normalDistance * goodTractionMultiplier;
+            maxDistance = normalDistance * maxDistanceMultiplier;
+        }
+    }
 
-    private void Update()
+    private void LateUpdate()
     {
         UpdateAdhesion();
+
         UpdateTension();
 
         UpdateAdhesionColor();
@@ -59,17 +75,15 @@ public class AdhesionController : MonoBehaviour
 
             Vector3 direction = pointB.position - pointA.position;
 
-            float distance = direction.magnitude;
+            float worldDistanse = direction.magnitude;
 
-            if (direction.sqrMagnitude > 0.0001f)
-            {
-                transform.rotation = Quaternion.FromToRotation(Vector3.right, direction);
-            }
-                     
+            transform.rotation = Quaternion.FromToRotation(Vector3.right, direction.normalized);
 
-            Vector3 scale = transform.localScale;
-            scale.x = distance;
-            transform.localScale = scale;   
+            float parentScaleX = transform.parent != null ? transform.parent.lossyScale.x : 1f;
+
+            float localLength = worldDistanse / parentScaleX;
+
+            transform.localScale = new Vector3(localLength, 0.06f, 0.06f);
         }
     }
 
@@ -80,9 +94,9 @@ public class AdhesionController : MonoBehaviour
 
         CurrentDistance = Vector3.Distance(pointA.position, pointB.position);
 
-        HasGoodTraction = CurrentDistance >= goodTraction && CurrentDistance < maxDistance * 0.975f;
+        HasGoodTraction = CurrentDistance >= goodTraction && CurrentDistance < maxDistance * 0.95f;
 
-        IsOverstretched = CurrentDistance >= maxDistance * 0.975f;
+        IsOverstretched = CurrentDistance >= maxDistance * 0.95f;
 
     }
 

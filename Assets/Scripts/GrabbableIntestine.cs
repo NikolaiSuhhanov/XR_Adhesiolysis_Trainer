@@ -5,109 +5,210 @@ public class GrabbableIntestine : MonoBehaviour
     public bool isGrabbed = false;
 
     [Header("Adhesion")]
+
     public AdhesionController adhesionController;
 
     public Transform adhesionPoint;
+
+    public Transform otherIntestine;
+
+    public float minimumGap = 0.2f;
+
+    public bool isLeftIntestine;
+
 
     private Transform grabPoint;
 
     private Vector3 grabOffset;
 
-    public Transform otherIntestine;
-
-    public float minimumGap = 0.3f;
-
-    public bool isLeftIntestine;
 
     public void Grab(Transform newGrabPoint)
     {
-        if (isGrabbed) return;
+        if (newGrabPoint == null)
+            return;
 
-        if (newGrabPoint == null) return;
-        
         isGrabbed = true;
 
         grabPoint = newGrabPoint;
 
-        grabOffset = transform.position - grabPoint.position;
+        // Keep the original distance between
+        // the instrument and the intestine.
 
+        grabOffset =
+            transform.position - grabPoint.position;
     }
+
 
     public void Release()
     {
-        if (!isGrabbed) return;
+        if (!isGrabbed)
+            return;
+
         isGrabbed = false;
+
         grabPoint = null;
     }
 
+
     private void LateUpdate()
     {
-        if (!isGrabbed) return;
-        
-        if (grabPoint == null) return;
+        if (!isGrabbed || grabPoint == null)
+            return;
 
-        if (adhesionController == null) return;
 
-        if (adhesionPoint == null) return;
+        // 1. Current intestine position
 
-        MoveIntestine();
-    }
+        Vector3 currentPosition = transform.position;
 
-    private void MoveIntestine()
-    {
-        Vector3 desiredIntestinePosition = grabPoint.position + grabOffset;
+
+        // 2. Desired position based on the grasper
+
+        Vector3 desiredPosition =
+            grabPoint.position + grabOffset;
+
+
+        // 3. Prevent the intestines from crossing
 
         if (otherIntestine != null)
         {
             if (isLeftIntestine)
             {
-               float maxX = otherIntestine.position.x - minimumGap;
+                float maxX =
+                    otherIntestine.position.x - minimumGap;
 
-                if (desiredIntestinePosition.x > maxX)
-                {
-                      desiredIntestinePosition.x = maxX;
-                }
+                desiredPosition.x =
+                    Mathf.Min(desiredPosition.x, maxX);
             }
-
             else
             {
-                float minX = otherIntestine.position.x + minimumGap;
-                if (desiredIntestinePosition.x < minX)
+                float minX =
+                    otherIntestine.position.x + minimumGap;
+
+                desiredPosition.x =
+                    Mathf.Max(desiredPosition.x, minX);
+            }
+        }
+
+
+        // 4. Limit adhesion stretching
+
+        if (adhesionController != null &&
+            adhesionPoint != null)
+        {
+            Transform otherPoint =
+                adhesionController.GetOtherPoint(adhesionPoint);
+
+            float maxDistance =
+                adhesionController.maxDistance;
+
+
+            if (otherPoint != null && maxDistance > 0f)
+            {
+                Vector3 currentAdhesionPosition =
+                    adhesionPoint.position;
+
+
+                // Calculate where the adhesion point
+                // would move together with the intestine.
+
+                Vector3 movement =
+                    desiredPosition - currentPosition;
+
+
+                Vector3 desiredAdhesionPosition =
+                    currentAdhesionPosition + movement;
+
+
+                float maxDistanceSquared =
+                    maxDistance * maxDistance;
+
+
+                float desiredDistanceSquared =
+                    (desiredAdhesionPosition -
+                     otherPoint.position).sqrMagnitude;
+
+
+                // Check whether the desired movement
+                // would overstretch the adhesion.
+
+                if (desiredDistanceSquared >
+                    maxDistanceSquared)
                 {
-                    desiredIntestinePosition.x = minX;
+                    float currentDistanceSquared =
+                        (currentAdhesionPosition -
+                         otherPoint.position).sqrMagnitude;
+
+
+                    if (currentDistanceSquared <=
+                        maxDistanceSquared + 0.00001f)
+                    {
+                        // Find the furthest allowed position
+                        // along the desired movement path.
+
+                        float low = 0f;
+
+                        float high = 1f;
+
+
+                        for (int i = 0; i < 20; i++)
+                        {
+                            float middle =
+                                (low + high) * 0.5f;
+
+
+                            Vector3 testPosition =
+                                Vector3.Lerp(
+                                    currentAdhesionPosition,
+                                    desiredAdhesionPosition,
+                                    middle
+                                );
+
+
+                            float testDistanceSquared =
+                                (testPosition -
+                                 otherPoint.position).sqrMagnitude;
+
+
+                            if (testDistanceSquared <=
+                                maxDistanceSquared)
+                            {
+                                low = middle;
+                            }
+                            else
+                            {
+                                high = middle;
+                            }
+                        }
+
+
+                        desiredPosition =
+                            Vector3.Lerp(
+                                currentPosition,
+                                desiredPosition,
+                                low
+                            );
+                    }
+                    else
+                    {
+                        // If the adhesion is already outside
+                        // its limit, prevent further stretching.
+
+                        if (desiredDistanceSquared >=
+                            currentDistanceSquared)
+                        {
+                            desiredPosition =
+                                currentPosition;
+                        }
+                    }
                 }
             }
-
         }
 
 
-        Vector3 movement = desiredIntestinePosition - transform.position;
-        Vector3 desiredAdhesionPointPosition = adhesionPoint.position + movement;
+        // 5. Move the intestine only once.
+        // The adhesion point follows automatically
+        // because it is a child of this object.
 
-        Transform otherPoint = adhesionController.GetOtherPoint(adhesionPoint);
-
-        if (otherPoint == null) return;
-
-        Vector3 direction = desiredAdhesionPointPosition - otherPoint.position;
-
-        float desiredDistance = direction.magnitude;
-
-        if (desiredDistance <= adhesionController.maxDistance)
-        {
-            transform.position = desiredIntestinePosition;
-            adhesionPoint.position = desiredAdhesionPointPosition;
-        }
-        else
-        {
-            Vector3 clampedDirection = direction.normalized * adhesionController.maxDistance;
-            adhesionPoint.position = otherPoint.position + clampedDirection;
-            Vector3 clampedIntestinePosition = adhesionPoint.position - grabOffset;
-            transform.position = clampedIntestinePosition;
-        }
-
-
-
+        transform.position = desiredPosition;
     }
-
-
 }

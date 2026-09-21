@@ -1,24 +1,47 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 public class GrasperGrab : MonoBehaviour
 {
     public Transform grabPoint; // The point where
 
+    public InputActionReference selectAction; // The input action for grabbing
+
     private GrabbableIntestine intestineInRange; // The intestine currently in range
     private GrabbableIntestine grabbedIntestine; // The intestine currently grabbed
 
-    private void Update()
+   private void OnEnable()
     {
-        if (Input.GetKeyDown(KeyCode.Space))
+        if (selectAction != null)
         {
-            Grab();
-        }
-
-        if (Input.GetKeyUp(KeyCode.Space))
-        {
-            Release();
+            
+            selectAction.action.performed += OnSelectPerformed;
+            selectAction.action.canceled += OnSelectCanceled;
+            selectAction.action.Enable();
         }
     }
+
+    private void OnDisable()
+    {
+        if (selectAction != null)
+        {
+            selectAction.action.performed -= OnSelectPerformed;
+            selectAction.action.canceled -= OnSelectCanceled;
+            selectAction.action.Disable();
+        }
+    }
+
+    private void OnSelectPerformed(InputAction.CallbackContext context)
+    {
+        Grab();
+    }
+
+    private void OnSelectCanceled(InputAction.CallbackContext context)
+    {
+        Release();
+    }
+
+
 
     private void Grab()
     {
