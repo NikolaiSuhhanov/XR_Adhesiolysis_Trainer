@@ -18,12 +18,40 @@ public class GrabbableIntestine : MonoBehaviour
     [Header("Additional Adhesions")]
     public AdditionalAdhesionConstraint[] additionalAdhesions;
 
+    [Header("Post-Adhesiolysis Mobility")]
+    [Tooltip("After every assigned adhesion is cut, the bowel becomes substantially more mobile.")]
+    public bool increaseMobilityAfterAllAdhesionsCut = true;
+
+    [Tooltip("How much farther the bowel may travel after complete adhesiolysis, relative to the initial adhesion span.")]
+    [Min(1f)]
+    public float postAdhesiolysisMobilityMultiplier = 2.5f;
+
     public Transform otherIntestine;
     public float minimumGap = 0.2f;
     public bool isLeftIntestine;
 
     private Transform grabPoint;
     private Vector3 grabOffset;
+
+    private Vector3 initialPosition;
+    private float postAdhesiolysisMaxTravel;
+    private bool releaseMessageShown;
+
+    private void Start()
+    {
+        initialPosition = transform.position;
+
+        // Use the initial span of the assigned adhesions as a scale-independent
+        // reference for the later, more mobile post-adhesiolysis state.
+        float referenceSpan = GetLargestInitialAdhesionSpan();
+
+        // Safe fallback if the scene is temporarily missing an assignment.
+        if (referenceSpan <= 0.0001f)
+            referenceSpan = 0.5f;
+
+        postAdhesiolysisMaxTravel =
+            referenceSpan * postAdhesiolysisMobilityMultiplier;
+    }
 
     public void Grab(Transform newGrabPoint)
     {
@@ -54,7 +82,7 @@ public class GrabbableIntestine : MonoBehaviour
         Vector3 currentPosition = transform.position;
         Vector3 desiredPosition = grabPoint.position + grabOffset;
 
-        // Prevent the two bowel loops from crossing.
+        // Prevent the two bowel loops from passing directly through one another.
         if (otherIntestine != null)
         {
             if (isLeftIntestine)
@@ -69,15 +97,89 @@ public class GrabbableIntestine : MonoBehaviour
             }
         }
 
-        // Primary adhesion (kept for backwards compatibility with the working scene).
-        desiredPosition = LimitByAdhesion(
-            currentPosition,
-            desiredPosition,
-            adhesionController,
-            adhesionPoint
-        );
+        bool anyAdhesionStillActive = HasAnyActiveAdhesion();
 
-        // Optional additional adhesions.
+        if (anyAdhesionStillActive)
+        {
+            // While at least one adhesion remains, every intact adhesion can
+            // still limit bowel excursion.
+            desiredPosition = LimitByAdhesion(
+                currentPosition,
+                desiredPosition,
+                adhesionController,
+                adhesionPoint
+            );
+
+            if (additionalAdhesions != null)
+            {
+                foreach (AdditionalAdhesionConstraint constraint in additionalAdhesions)
+                {
+                    if (constraint == null)
+                        continue;
+
+                    desiredPosition = LimitByAdhesion(
+                        currentPosition,
+                        desiredPosition,
+                        constraint.adhesionController,
+                        constraint.adhesionPoint
+                    );
+                }
+            }
+        }
+        else if (increaseMobilityAfterAllAdhesionsCut)
+        {
+            // Complete adhesiolysis: adhesion-based limits are gone.
+            // The bowel is allowed a much larger excursion, but remains
+            // finitely tethered to represent mesenteric attachment.
+            Vector3 fromStart = desiredPosition - initialPosition;
+
+            if (fromStart.magnitude > postAdhesiolysisMaxTravel)
+            {
+                desiredPosition =
+                    initialPosition +
+                    fromStart.normalized * postAdhesiolysisMaxTravel;
+            }
+
+            if (!releaseMessageShown)
+            {
+                Debug.Log("All adhesions cut. Bowel mobility increased.");
+                releaseMessageShown = true;
+            }
+        }
+
+        transform.position = desiredPosition;
+    }
+
+    private bool HasAnyActiveAdhesion()
+    {
+        if (IsAdhesionActive(adhesionController))
+            return true;
+
+        if (additionalAdhesions != null)
+        {
+            foreach (AdditionalAdhesionConstraint constraint in additionalAdhesions)
+            {
+                if (constraint != null &&
+                    IsAdhesionActive(constraint.adhesionController))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private bool IsAdhesionActive(AdhesionController controller)
+    {
+        return controller != null &&
+               controller.gameObject.activeInHierarchy;
+    }
+
+    private float GetLargestInitialAdhesionSpan()
+    {
+        float largest = GetAdhesionSpan(adhesionController, adhesionPoint);
+
         if (additionalAdhesions != null)
         {
             foreach (AdditionalAdhesionConstraint constraint in additionalAdhesions)
@@ -85,16 +187,32 @@ public class GrabbableIntestine : MonoBehaviour
                 if (constraint == null)
                     continue;
 
-                desiredPosition = LimitByAdhesion(
-                    currentPosition,
-                    desiredPosition,
-                    constraint.adhesionController,
-                    constraint.adhesionPoint
+                largest = Mathf.Max(
+                    largest,
+                    GetAdhesionSpan(
+                        constraint.adhesionController,
+                        constraint.adhesionPoint
+                    )
                 );
             }
         }
 
-        transform.position = desiredPosition;
+        return largest;
+    }
+
+    private float GetAdhesionSpan(
+        AdhesionController controller,
+        Transform point)
+    {
+        if (controller == null || point == null)
+            return 0f;
+
+        Transform otherPoint = controller.GetOtherPoint(point);
+
+        if (otherPoint == null)
+            return 0f;
+
+        return Vector3.Distance(point.position, otherPoint.position);
     }
 
     private Vector3 LimitByAdhesion(
@@ -103,8 +221,7 @@ public class GrabbableIntestine : MonoBehaviour
         AdhesionController controller,
         Transform point)
     {
-        // Once an adhesion is cut its GameObject is inactive, so it must no
-        // longer restrict bowel movement.
+        // A cut adhesion is inactive and no longer restricts bowel movement.
         if (controller == null ||
             point == null ||
             !controller.gameObject.activeInHierarchy)
@@ -120,7 +237,8 @@ public class GrabbableIntestine : MonoBehaviour
 
         Vector3 currentAdhesionPosition = point.position;
         Vector3 movement = desiredPosition - currentPosition;
-        Vector3 desiredAdhesionPosition = currentAdhesionPosition + movement;
+        Vector3 desiredAdhesionPosition =
+            currentAdhesionPosition + movement;
 
         float maxDistanceSquared = maxDistance * maxDistance;
         float desiredDistanceSquared =
@@ -134,7 +252,7 @@ public class GrabbableIntestine : MonoBehaviour
 
         if (currentDistanceSquared <= maxDistanceSquared + 0.00001f)
         {
-            // Binary search for the furthest allowed point along this move.
+            // Find the furthest allowed point along the requested movement.
             float low = 0f;
             float high = 1f;
 
@@ -157,10 +275,14 @@ public class GrabbableIntestine : MonoBehaviour
                     high = middle;
             }
 
-            return Vector3.Lerp(currentPosition, desiredPosition, low);
+            return Vector3.Lerp(
+                currentPosition,
+                desiredPosition,
+                low
+            );
         }
 
-        // If already beyond the limit, allow only movement that relieves tension.
+        // If already beyond the limit, allow movement only if it relieves tension.
         if (desiredDistanceSquared >= currentDistanceSquared)
             return currentPosition;
 
