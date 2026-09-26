@@ -2,20 +2,14 @@ using UnityEngine;
 
 public class ScissorsCut : MonoBehaviour
 {
-    
-    public AdhesionController adhesionController; // Reference to the AdhesionController script
-
-    private CuttableAdhesion adhesionInRange; // Reference to the CuttableAdhesion script
+    private CuttableAdhesion adhesionInRange;
 
     private void Update()
     {
-        
         if (Input.GetKeyDown(KeyCode.RightShift))
         {
             TryCut();
         }
-
-
     }
 
     private void TryCut()
@@ -26,26 +20,15 @@ public class ScissorsCut : MonoBehaviour
             return;
         }
 
-        if (adhesionController == null) 
-        
-        {
-            Debug.Log("AdhesionController is not assigned.");
-            return;
-        }
-
-        if (!adhesionController.HasGoodTraction)
-        {
-            Debug.Log("Scissors do not have good traction. Cannot cut.");
-            return;
-        }
-
+        // Each adhesion now checks its OWN AdhesionController.
+        // This allows multiple adhesions to be cut independently.
         adhesionInRange.Cut();
-
     }
 
     private void OnTriggerEnter(Collider other)
     {
         CuttableAdhesion adhesion = other.GetComponent<CuttableAdhesion>();
+
         if (adhesion != null)
         {
             adhesionInRange = adhesion;
@@ -56,12 +39,11 @@ public class ScissorsCut : MonoBehaviour
     private void OnTriggerExit(Collider other)
     {
         CuttableAdhesion adhesion = other.GetComponent<CuttableAdhesion>();
+
         if (adhesion != null && adhesion == adhesionInRange)
         {
             adhesionInRange = null;
             Debug.Log("Adhesion out of range.");
         }
     }
-
-
 }
