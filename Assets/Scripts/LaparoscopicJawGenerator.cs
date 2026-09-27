@@ -33,12 +33,28 @@ public class LaparoscopicJawGenerator : MonoBehaviour
     [Range(0f, 0.45f)]
     public float tipRoundness = 0.18f;
 
+    [Header("Atraumatic Serrations")]
+    public bool addSerrations = true;
+
+    [Range(3, 12)]
+    public int serrationCount = 7;
+
+    [Tooltip("How far the transverse ridges project from the inner gripping surface.")]
+    [Range(0f, 0.16f)]
+    public float serrationDepth = 0.07f;
+
+    [Range(0f, 0.8f)]
+    public float serrationStart = 0.18f;
+
+    [Range(0.2f, 1f)]
+    public float serrationEnd = 0.88f;
+
     [Header("Mesh Quality")]
-    [Range(4, 24)]
-    public int lengthSegments = 10;
+    [Range(8, 48)]
+    public int lengthSegments = 32;
 
     [Range(6, 20)]
-    public int radialSegments = 10;
+    public int radialSegments = 12;
 
     private Mesh generatedMesh;
 
@@ -62,8 +78,11 @@ public class LaparoscopicJawGenerator : MonoBehaviour
         if (filter == null)
             return;
 
-        lengthSegments = Mathf.Max(2, lengthSegments);
+        lengthSegments = Mathf.Max(4, lengthSegments);
         radialSegments = Mathf.Max(6, radialSegments);
+
+        if (serrationEnd < serrationStart + 0.05f)
+            serrationEnd = Mathf.Min(1f, serrationStart + 0.05f);
 
         int rings = lengthSegments + 1;
         int vertsPerRing = radialSegments;
@@ -71,10 +90,10 @@ public class LaparoscopicJawGenerator : MonoBehaviour
         int triangleCount = lengthSegments * radialSegments * 2 + radialSegments * 2;
 
         Vector3[] vertices = new Vector3[vertexCount];
-        Vector3[] normals = new Vector3[vertexCount];
         Vector2[] uvs = new Vector2[vertexCount];
         int[] triangles = new int[triangleCount * 3];
 
+        // Positive X is inward for the left jaw; negative X is inward for the right.
         float inwardSign = side == JawSide.Left ? 1f : -1f;
 
         for (int i = 0; i < rings; i++)
@@ -104,24 +123,25 @@ public class LaparoscopicJawGenerator : MonoBehaviour
             // Distal bending toward the opposing jaw.
             float xCenter = inwardSign * inwardCurve * smooth * smooth;
 
+            float ridgeAmount = GetSerrationAmount(t);
+
             for (int j = 0; j < radialSegments; j++)
             {
                 float angle = (float)j / radialSegments * Mathf.PI * 2f;
+                float cos = Mathf.Cos(angle);
+                float sin = Mathf.Sin(angle);
 
                 // Flattened elliptical cross-section: wider than it is thick.
-                float x = Mathf.Cos(angle) * width * 0.5f;
-                float y = Mathf.Sin(angle) * localThickness * 0.5f;
+                float x = cos * width * 0.5f;
+                float y = sin * localThickness * 0.5f;
+
+                // Serrations affect only the inner gripping face and fade smoothly
+                // toward the side edges of the jaw.
+                float innerFaceWeight = Mathf.Clamp01(cos * inwardSign);
+                x += inwardSign * ridgeAmount * innerFaceWeight * innerFaceWeight;
 
                 int index = i * vertsPerRing + j;
                 vertices[index] = new Vector3(xCenter + x, y, z);
-
-                Vector3 n = new Vector3(
-                    Mathf.Cos(angle) / Mathf.Max(0.0001f, width),
-                    Mathf.Sin(angle) / Mathf.Max(0.0001f, localThickness),
-                    0f
-                ).normalized;
-
-                normals[index] = n;
                 uvs[index] = new Vector2((float)j / radialSegments, t);
             }
         }
@@ -157,16 +177,12 @@ public class LaparoscopicJawGenerator : MonoBehaviour
         int baseCenter = rings * vertsPerRing;
         int tipCenter = baseCenter + 1;
 
-        float baseX = side == JawSide.Left ? 0f : 0f;
-        float tipSmooth = 1f;
-        float tipX = inwardSign * inwardCurve * tipSmooth * tipSmooth;
+        float tipX = inwardSign * inwardCurve;
 
-        vertices[baseCenter] = new Vector3(baseX, 0f, -0.5f);
-        normals[baseCenter] = Vector3.back;
+        vertices[baseCenter] = new Vector3(0f, 0f, -0.5f);
         uvs[baseCenter] = new Vector2(0.5f, 0f);
 
         vertices[tipCenter] = new Vector3(tipX, 0f, 0.5f);
-        normals[tipCenter] = Vector3.forward;
         uvs[tipCenter] = new Vector2(0.5f, 1f);
 
         int lastRing = lengthSegments * vertsPerRing;
@@ -198,12 +214,37 @@ public class LaparoscopicJawGenerator : MonoBehaviour
         };
 
         generatedMesh.vertices = vertices;
-        generatedMesh.normals = normals;
         generatedMesh.uv = uvs;
         generatedMesh.triangles = triangles;
+        generatedMesh.RecalculateNormals();
         generatedMesh.RecalculateBounds();
         generatedMesh.RecalculateTangents();
 
         filter.sharedMesh = generatedMesh;
+    }
+
+    private float GetSerrationAmount(float t)
+    {
+        if (!addSerrations ||
+            serrationDepth <= 0f ||
+            t < serrationStart ||
+            t > serrationEnd)
+        {
+            return 0f;
+        }
+
+        float normalized = Mathf.InverseLerp(serrationStart, serrationEnd, t);
+
+        // Narrow rounded transverse ridges rather than sharp teeth.
+        float phase = normalized * serrationCount;
+        float fraction = Mathf.Repeat(phase, 1f);
+        float triangle = 1f - Mathf.Abs(fraction - 0.5f) * 2f;
+        float ridge = Mathf.Pow(Mathf.Clamp01(triangle), 3f);
+
+        // Fade ridges in and out near the ends of the gripping area.
+        float edgeFade = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(normalized * 8f)) *
+                         Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((1f - normalized) * 8f));
+
+        return ridge * serrationDepth * edgeFade;
     }
 }
