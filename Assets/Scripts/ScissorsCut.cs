@@ -6,13 +6,14 @@ public class ScissorsCut : MonoBehaviour
 
     private void Update()
     {
+        // Desktop fallback kept for testing without a headset.
         if (Input.GetKeyDown(KeyCode.RightShift))
         {
             TryCut();
         }
     }
 
-    private void TryCut()
+    public void TryCut()
     {
         if (adhesionInRange == null)
         {
@@ -20,8 +21,7 @@ public class ScissorsCut : MonoBehaviour
             return;
         }
 
-        // Each adhesion now checks its OWN AdhesionController.
-        // This allows multiple adhesions to be cut independently.
+        // Each adhesion checks its own AdhesionController.
         adhesionInRange.Cut();
     }
 
