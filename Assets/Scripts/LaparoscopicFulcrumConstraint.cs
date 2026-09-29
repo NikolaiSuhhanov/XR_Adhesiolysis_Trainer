@@ -16,6 +16,9 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
     public Transform trocarPoint;
 
     [Header("Insertion")]
+    [Tooltip("Use the instrument's current scene position as the starting insertion depth. Recommended for setup.")]
+    public bool useCurrentPoseAsInitial = true;
+
     [Tooltip("Distance from the trocar to the instrument root along the inward shaft direction at startup.")]
     public float initialInsertionDepth = 0f;
 
@@ -77,6 +80,20 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
 
         initialControllerDistance = toTrocar.magnitude;
         initialInwardDirection = toTrocar.normalized;
+
+        if (useCurrentPoseAsInitial)
+        {
+            initialInsertionDepth = Vector3.Dot(
+                transform.position - trocarPoint.position,
+                initialInwardDirection
+            );
+
+            // Expand the initial clamp automatically if the existing pose is outside
+            // the default range, so enabling the constraint does not cause a sudden jump.
+            minInsertionDepth = Mathf.Min(minInsertionDepth, initialInsertionDepth - 0.02f);
+            maxInsertionDepth = Mathf.Max(maxInsertionDepth, initialInsertionDepth + 0.02f);
+        }
+
         CurrentInsertionDepth = Mathf.Clamp(
             initialInsertionDepth,
             minInsertionDepth,
