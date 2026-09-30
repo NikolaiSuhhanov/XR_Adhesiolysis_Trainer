@@ -53,7 +53,9 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
     public float CurrentInsertionDepth { get; private set; }
 
     private float initialControllerDistance;
+    private float initialAxialDistance;
     private Vector3 initialInwardDirection;
+    private Vector3 initialOutsideDirection;
     private Quaternion modelRotationOffset = Quaternion.identity;
     private bool initialized;
 
@@ -80,6 +82,11 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
 
         initialControllerDistance = toTrocar.magnitude;
         initialInwardDirection = toTrocar.normalized;
+        initialOutsideDirection = -initialInwardDirection;
+        initialAxialDistance = Vector3.Dot(
+            controllerTarget.position - trocarPoint.position,
+            initialOutsideDirection
+        );
 
         if (useCurrentPoseAsInitial)
         {
@@ -115,13 +122,36 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
                 return;
         }
 
-        Vector3 toTrocar = trocarPoint.position - controllerTarget.position;
-        float controllerDistance = toTrocar.magnitude;
+        Vector3 controllerRelative =
+            controllerTarget.position - trocarPoint.position;
 
-        if (controllerDistance < 0.0001f)
+        // Separate angulation from insertion:
+        // - lateral controller motion changes the instrument angle around the trocar;
+        // - forward/back motion changes insertion depth only.
+        // This prevents the instrument from flipping when the controller approaches
+        // or even passes the trocar plane.
+        float axialDistance = Vector3.Dot(
+            controllerRelative,
+            initialOutsideDirection
+        );
+
+        Vector3 lateralOffset =
+            controllerRelative - initialOutsideDirection * axialDistance;
+
+        float aimDistance = Mathf.Max(initialControllerDistance, 0.05f);
+
+        Vector3 virtualHandlePosition =
+            trocarPoint.position +
+            initialOutsideDirection * aimDistance +
+            lateralOffset;
+
+        Vector3 inwardVector =
+            trocarPoint.position - virtualHandlePosition;
+
+        if (inwardVector.sqrMagnitude < 0.000001f)
             return;
 
-        Vector3 inwardDirection = toTrocar / controllerDistance;
+        Vector3 inwardDirection = inwardVector.normalized;
 
         if (limitTilt)
         {
@@ -134,7 +164,7 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
         }
 
         float controllerTravel =
-            (initialControllerDistance - controllerDistance) * insertionSensitivity;
+            (initialAxialDistance - axialDistance) * insertionSensitivity;
 
         CurrentInsertionDepth = Mathf.Clamp(
             initialInsertionDepth + controllerTravel,
