@@ -163,8 +163,15 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
             ).normalized;
         }
 
+        // Insertion is driven by how much closer/farther the controller
+        // moves relative to the trocar. This is more natural with XR Device
+        // Simulator and real controllers than relying on one fixed world axis.
+        // The aiming direction still uses the virtual handle above, so crossing
+        // the trocar plane cannot flip the instrument.
+        float controllerDistance = controllerRelative.magnitude;
+
         float controllerTravel =
-            (initialAxialDistance - axialDistance) * insertionSensitivity;
+            (initialControllerDistance - controllerDistance) * insertionSensitivity;
 
         CurrentInsertionDepth = Mathf.Clamp(
             initialInsertionDepth + controllerTravel,
