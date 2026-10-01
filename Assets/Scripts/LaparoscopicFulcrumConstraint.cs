@@ -28,8 +28,11 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
     [Tooltip("Maximum permitted insertion depth.")]
     public float maxInsertionDepth = 0.12f;
 
-    [Tooltip("How strongly controller movement toward/away from the trocar changes insertion depth.")]
+    [Tooltip("How strongly controller movement toward/away from the operating field changes insertion depth.")]
     public float insertionSensitivity = 1f;
+
+    [Tooltip("Insertion axis in trocar-local space. For this scene, +Z points toward the operating field.")]
+    public Vector3 localInsertionAxis = Vector3.forward;
 
     [Header("Rotation")]
     [Tooltip("Preserve controller roll around the shaft axis.")]
@@ -53,7 +56,8 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
     public float CurrentInsertionDepth { get; private set; }
 
     private float initialControllerDistance;
-    private float initialAxialDistance;
+    private Vector3 initialControllerPosition;
+    private Vector3 insertionAxisWorld;
     private Vector3 initialInwardDirection;
     private Vector3 initialOutsideDirection;
     private Quaternion modelRotationOffset = Quaternion.identity;
@@ -81,12 +85,15 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
         }
 
         initialControllerDistance = toTrocar.magnitude;
+        initialControllerPosition = controllerTarget.position;
         initialInwardDirection = toTrocar.normalized;
         initialOutsideDirection = -initialInwardDirection;
-        initialAxialDistance = Vector3.Dot(
-            controllerTarget.position - trocarPoint.position,
-            initialOutsideDirection
-        );
+
+        Vector3 configuredAxis = localInsertionAxis.sqrMagnitude > 0.000001f
+            ? localInsertionAxis.normalized
+            : Vector3.forward;
+
+        insertionAxisWorld = trocarPoint.TransformDirection(configuredAxis).normalized;
 
         if (useCurrentPoseAsInitial)
         {
@@ -122,28 +129,24 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
                 return;
         }
 
-        Vector3 controllerRelative =
-            controllerTarget.position - trocarPoint.position;
+        Vector3 controllerDelta =
+            controllerTarget.position - initialControllerPosition;
 
-        // Separate angulation from insertion:
-        // - lateral controller motion changes the instrument angle around the trocar;
-        // - forward/back motion changes insertion depth only.
-        // This prevents the instrument from flipping when the controller approaches
-        // or even passes the trocar plane.
-        float axialDistance = Vector3.Dot(
-            controllerRelative,
-            initialOutsideDirection
+        // Explicitly separate insertion from angulation:
+        // - motion along the trocar's configured insertion axis changes depth;
+        // - motion perpendicular to that axis changes the instrument angle.
+        // This makes forward/back motion reliable in XR Device Simulator and
+        // prevents depth movement from accidentally steering the instrument.
+        float insertionTravel = Vector3.Dot(
+            controllerDelta,
+            insertionAxisWorld
         );
 
-        Vector3 lateralOffset =
-            controllerRelative - initialOutsideDirection * axialDistance;
-
-        float aimDistance = Mathf.Max(initialControllerDistance, 0.05f);
+        Vector3 lateralDelta =
+            controllerDelta - insertionAxisWorld * insertionTravel;
 
         Vector3 virtualHandlePosition =
-            trocarPoint.position +
-            initialOutsideDirection * aimDistance +
-            lateralOffset;
+            initialControllerPosition + lateralDelta;
 
         Vector3 inwardVector =
             trocarPoint.position - virtualHandlePosition;
@@ -163,15 +166,8 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
             ).normalized;
         }
 
-        // Insertion is driven by how much closer/farther the controller
-        // moves relative to the trocar. This is more natural with XR Device
-        // Simulator and real controllers than relying on one fixed world axis.
-        // The aiming direction still uses the virtual handle above, so crossing
-        // the trocar plane cannot flip the instrument.
-        float controllerDistance = controllerRelative.magnitude;
-
         float controllerTravel =
-            (initialControllerDistance - controllerDistance) * insertionSensitivity;
+            insertionTravel * insertionSensitivity;
 
         CurrentInsertionDepth = Mathf.Clamp(
             initialInsertionDepth + controllerTravel,
