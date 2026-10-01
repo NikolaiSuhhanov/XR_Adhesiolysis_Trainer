@@ -31,9 +31,6 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
     [Tooltip("How strongly controller movement toward/away from the operating field changes insertion depth.")]
     public float insertionSensitivity = 1f;
 
-    [Tooltip("Insertion axis in trocar-local space. For this scene, +Z points toward the operating field.")]
-    public Vector3 localInsertionAxis = Vector3.forward;
-
     [Header("Rotation")]
     [Tooltip("Preserve controller roll around the shaft axis.")]
     public bool followControllerRoll = true;
@@ -57,7 +54,6 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
 
     private float initialControllerDistance;
     private Vector3 initialControllerPosition;
-    private Vector3 insertionAxisWorld;
     private Vector3 initialInwardDirection;
     private Vector3 initialOutsideDirection;
     private Quaternion modelRotationOffset = Quaternion.identity;
@@ -89,12 +85,6 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
         initialInwardDirection = toTrocar.normalized;
         initialOutsideDirection = -initialInwardDirection;
 
-        Vector3 configuredAxis = localInsertionAxis.sqrMagnitude > 0.000001f
-            ? localInsertionAxis.normalized
-            : Vector3.forward;
-
-        insertionAxisWorld = trocarPoint.TransformDirection(configuredAxis).normalized;
-
         if (useCurrentPoseAsInitial)
         {
             initialInsertionDepth = Vector3.Dot(
@@ -125,28 +115,34 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
         if (!initialized)
         {
             InitializeConstraint();
+
             if (!initialized)
                 return;
         }
 
-        Vector3 controllerDelta =
-            controllerTarget.position - initialControllerPosition;
+        Vector3 controllerRelative =
+            controllerTarget.position - trocarPoint.position;
 
-        // Explicitly separate insertion from angulation:
-        // - motion along the trocar's configured insertion axis changes depth;
-        // - motion perpendicular to that axis changes the instrument angle.
-        // This makes forward/back motion reliable in XR Device Simulator and
-        // prevents depth movement from accidentally steering the instrument.
-        float insertionTravel = Vector3.Dot(
-            controllerDelta,
-            insertionAxisWorld
+        // Split controller motion relative to the instrument's INITIAL shaft axis.
+        // Axial motion controls insertion/retraction.
+        // Lateral motion controls angulation around the fixed trocar.
+        float axialDistance = Vector3.Dot(
+            controllerRelative,
+            initialOutsideDirection
         );
 
-        Vector3 lateralDelta =
-            controllerDelta - insertionAxisWorld * insertionTravel;
+        Vector3 lateralOffset =
+            controllerRelative - initialOutsideDirection * axialDistance;
+
+        // Keep a virtual handle safely on the outside of the trocar.
+        // This prevents the instrument from "folding over" when the real/simulated
+        // controller moves close to the trocar plane.
+        float virtualHandleDistance = Mathf.Max(initialControllerDistance, 0.05f);
 
         Vector3 virtualHandlePosition =
-            initialControllerPosition + lateralDelta;
+            trocarPoint.position +
+            initialOutsideDirection * virtualHandleDistance +
+            lateralOffset;
 
         Vector3 inwardVector =
             trocarPoint.position - virtualHandlePosition;
@@ -166,11 +162,13 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
             ).normalized;
         }
 
-        float controllerTravel =
-            insertionTravel * insertionSensitivity;
+        // Moving the controller toward the trocar reduces axialDistance,
+        // therefore the instrument is inserted deeper.
+        float insertionTravel =
+            (initialControllerDistance - axialDistance) * insertionSensitivity;
 
         CurrentInsertionDepth = Mathf.Clamp(
-            initialInsertionDepth + controllerTravel,
+            initialInsertionDepth + insertionTravel,
             minInsertionDepth,
             maxInsertionDepth
         );
@@ -183,8 +181,11 @@ public class LaparoscopicFulcrumConstraint : MonoBehaviour
 
         if (smoothMotion)
         {
-            float positionT = 1f - Mathf.Exp(-positionSharpness * Time.deltaTime);
-            float rotationT = 1f - Mathf.Exp(-rotationSharpness * Time.deltaTime);
+            float positionT =
+                1f - Mathf.Exp(-positionSharpness * Time.deltaTime);
+
+            float rotationT =
+                1f - Mathf.Exp(-rotationSharpness * Time.deltaTime);
 
             transform.position = Vector3.Lerp(
                 transform.position,
