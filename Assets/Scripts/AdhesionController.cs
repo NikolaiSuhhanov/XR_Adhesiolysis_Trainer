@@ -11,11 +11,18 @@ public class AdhesionController : MonoBehaviour
     public float goodTractionMultiplier = 1.25f;
     public float maxDistanceMultiplier = 1.5f;
 
+    [Range(0.75f, 1f)]
+    public float overstretchThreshold = 0.95f;
+
+    [Header("Training Metrics")]
+    [SerializeField] private TrainingMetrics trainingMetrics;
+
+    private bool wasOverstretched;
 
 
     public float maxDistance { get; private set; }
     public float normalDistance  { get; private set; }
-public float goodTraction { get; private set; }
+    public float goodTraction { get; private set; }
 
     public float CurrentDistance { get; private set; }
     public bool HasGoodTraction { get; private set; }
@@ -43,7 +50,22 @@ public float goodTraction { get; private set; }
 
         UpdateTension();
 
+        CheckExcessiveTractionEvent();
+
         UpdateAdhesionColor();
+    }
+
+    private void CheckExcessiveTractionEvent()
+    {
+        if (IsOverstretched && !wasOverstretched)
+        {
+            if (trainingMetrics != null)
+            {
+                trainingMetrics.RegisterExcessiveTraction();
+            }
+        }
+
+        wasOverstretched = IsOverstretched;
     }
 
     private void UpdateAdhesionColor()
@@ -94,9 +116,14 @@ public float goodTraction { get; private set; }
 
         CurrentDistance = Vector3.Distance(pointA.position, pointB.position);
 
-        HasGoodTraction = CurrentDistance >= goodTraction && CurrentDistance < maxDistance * 0.95f;
+        float overstretchDistance = maxDistance * overstretchThreshold;
 
-        IsOverstretched = CurrentDistance >= maxDistance * 0.95f;
+        HasGoodTraction =
+            CurrentDistance >= goodTraction &&
+            CurrentDistance < overstretchDistance;
+
+        IsOverstretched =
+            CurrentDistance >= overstretchDistance;
 
     }
 

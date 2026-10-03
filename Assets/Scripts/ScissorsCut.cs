@@ -4,6 +4,8 @@ public class ScissorsCut : MonoBehaviour
 {
     private CuttableAdhesion adhesionInRange;
 
+    [SerializeField] private TrainingMetrics trainingMetrics;
+
     private void Update()
     {
         // Desktop fallback kept for testing without a headset.
@@ -21,7 +23,19 @@ public class ScissorsCut : MonoBehaviour
             return;
         }
 
-        // Each adhesion checks its own AdhesionController.
+        AdhesionController adhesionController =
+            adhesionInRange.GetComponent<AdhesionController>();
+
+        if (adhesionController != null &&
+            !adhesionController.HasGoodTraction)
+        {
+            if (trainingMetrics != null)
+            {
+                trainingMetrics.RegisterInvalidCutAttempt();
+            }
+        }
+
+        // Existing cutting logic remains unchanged.
         adhesionInRange.Cut();
     }
 

@@ -22,6 +22,9 @@ public class TrainingFlowController : MonoBehaviour
     public GameObject trainingPanel;
     public GameObject completionPanel;
 
+    [Header("Metrics")]
+    [SerializeField] private TrainingMetrics trainingMetrics;
+
     public TrainingState CurrentState { get; private set; }
 
     private void Start()
@@ -42,6 +45,11 @@ public class TrainingFlowController : MonoBehaviour
     public void StartTraining()
     {
         CurrentState = TrainingState.Training;
+
+        if (trainingMetrics != null)
+        {
+            trainingMetrics.StartTraining();
+        }
 
         if (introPanel != null)
             introPanel.SetActive(false);
@@ -71,6 +79,11 @@ public class TrainingFlowController : MonoBehaviour
     private void CompleteTraining()
     {
         CurrentState = TrainingState.Completed;
+
+        if (trainingMetrics != null)
+        {
+            trainingMetrics.CompleteTraining();
+        }
 
         if (trainingPanel != null)
             trainingPanel.SetActive(false);
